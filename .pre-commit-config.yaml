@@ -1,0 +1,54 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-executables-have-shebangs
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-shebang-scripts-are-executable
+      - id: check-toml
+      - id: check-xml
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: no-commit-to-branch
+      - id: pretty-format-json
+        args: [--autofix]
+      - id: trailing-whitespace
+
+# Rust-specific hooks (using local toolchain)
+-   repo: local
+    hooks:
+    -   id: cargo-fmt
+        name: cargo fmt
+        description: Format Rust code
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+    -   id: cargo-check
+        name: cargo check
+        description: Check for compilation errors
+        entry: cargo check
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+    -   id: cargo-clippy
+        name: cargo clippy
+        description: Lint Rust code
+        entry: cargo clippy -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+    -   id: cargo-test
+        name: cargo test
+        description: Run unit tests
+        entry: cargo test
+        language: system
+        types: [rust]
+        pass_filenames: false
