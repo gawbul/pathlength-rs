@@ -75,7 +75,7 @@ Use conventional commit format for all commit messages:
 The codebase is organized as a library and CLI binary:
 
 1. **`src/main.rs`** - Entry point with CLI argument parsing via `clap`
-   - Handles flags: `-f` (file), `-h` (help), `-v` (version), `-c` (citation), `-l` (license)
+   - Handles flags: `-f` (file), `-d` (debug), `-h` (help), `-v` (version), `-c` (citation), `-l` (license)
    - Parses parameter file and orchestrates simulation runs
 
 2. **`src/lib.rs`** - Module exports and `parse_input_parameters`
@@ -97,10 +97,10 @@ The codebase is organized as a library and CLI binary:
 ## Output Files
 
 For each parameter set with species name "X", generates:
-- `X_debug.csv` - Debug information from simulation
 - `X_pathlengths.csv` - Raw pathlength data for each facet/pigment combination
 - `X_summary_res.csv` - Calculated resolution values
 - `X_summary_sen.csv` - Calculated sensitivity values
+- `X_debug.csv` - (Optional, generated with `-d`) Debug information from simulation
 
 ## Citation
 

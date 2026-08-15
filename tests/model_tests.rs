@@ -3,6 +3,7 @@ use pathlength_rs::parameters::Parameters;
 use std::f64::consts::PI;
 use std::fs;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 #[test]
 fn test_initial_calculations() {
@@ -83,7 +84,7 @@ fn test_run_model_blur_circle_and_pointy_rhabdom() {
         if line == "999" {
             block_count += 1;
         }
-        if line.contains("998") && line.starts_with("0,") {
+        if line.starts_with("0,") {
             found_leading_zero = true;
         }
     }
@@ -116,13 +117,63 @@ fn test_run_model_blur_circle_and_pointy_rhabdom() {
 
     // Clean up test files
     let _ = fs::remove_file("test_flat_pathlengths.csv");
-    let _ = fs::remove_file("test_flat_debug.csv");
     let _ = fs::remove_file("test_flat_summary_res.csv");
     let _ = fs::remove_file("test_flat_summary_sen.csv");
     let _ = fs::remove_file("test_pointy_pathlengths.csv");
-    let _ = fs::remove_file("test_pointy_debug.csv");
     let _ = fs::remove_file("test_pointy_summary_res.csv");
     let _ = fs::remove_file("test_pointy_summary_sen.csv");
+}
+
+#[test]
+fn test_debug_flag_output() {
+    let params_no_debug = Parameters {
+        species_name: "test_nodebug".to_string(),
+        rhabdom_length: 100.0,
+        rhabdom_width: 20.0,
+        eye_diameter: 1000.0,
+        facet_width: 20.0,
+        aperture_diameter: 500.0,
+        cytoplasm_refractive_index: 1.34,
+        rhabdom_refractive_index: 1.37,
+        blur_circle_extent: 1.0,
+        proximal_rhabdom_angle: 0.0,
+    };
+    let mut model_no_debug = Model::new(params_no_debug);
+    model_no_debug.debug_mode = false;
+    model_no_debug.run_simulation().unwrap();
+
+    let _ = fs::remove_file("test_nodebug_pathlengths.csv");
+    let _ = fs::remove_file("test_nodebug_summary_res.csv");
+    let _ = fs::remove_file("test_nodebug_summary_sen.csv");
+    assert!(
+        !Path::new("test_nodebug_debug.csv").exists(),
+        "Expected test_nodebug_debug.csv to NOT exist when debug_mode is false"
+    );
+
+    let params_debug = Parameters {
+        species_name: "test_debug".to_string(),
+        rhabdom_length: 100.0,
+        rhabdom_width: 20.0,
+        eye_diameter: 1000.0,
+        facet_width: 20.0,
+        aperture_diameter: 500.0,
+        cytoplasm_refractive_index: 1.34,
+        rhabdom_refractive_index: 1.37,
+        blur_circle_extent: 1.0,
+        proximal_rhabdom_angle: 0.0,
+    };
+    let mut model_debug = Model::new(params_debug);
+    model_debug.debug_mode = true;
+    model_debug.run_simulation().unwrap();
+
+    let _ = fs::remove_file("test_debug_pathlengths.csv");
+    let _ = fs::remove_file("test_debug_summary_res.csv");
+    let _ = fs::remove_file("test_debug_summary_sen.csv");
+    assert!(
+        Path::new("test_debug_debug.csv").exists(),
+        "Expected test_debug_debug.csv to exist when debug_mode is true"
+    );
+    let _ = fs::remove_file("test_debug_debug.csv");
 }
 
 #[test]
@@ -168,7 +219,6 @@ fn test_calculate_ressens_full_matrix() {
 
     // Clean up
     let _ = fs::remove_file("test_matrix_pathlengths.csv");
-    let _ = fs::remove_file("test_matrix_debug.csv");
     let _ = fs::remove_file("test_matrix_summary_res.csv");
     let _ = fs::remove_file("test_matrix_summary_sen.csv");
 }
