@@ -11,11 +11,11 @@ pub struct Parameters {
     pub cytoplasm_refractive_index: f64,
     pub rhabdom_refractive_index: f64,
     pub blur_circle_extent: f64,
-    pub _proximal_rhabdom_angle: f64,
+    pub proximal_rhabdom_angle: f64,
 }
 
 impl Parameters {
-    /// Validates and corrects parameters after loading (mirroring Go logic)
+    /// Validates and corrects parameters after loading
     pub fn post_process(&mut self) {
         // Ensure blur circle is at least 1.0
         if self.blur_circle_extent < 1.0 {

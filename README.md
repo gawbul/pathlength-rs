@@ -34,7 +34,7 @@ mkdir -p ~/projects
 cd ~/projects
 
 # Clone the GitHub repository
-git clone git@github.com:gawbul/pathlength.git
+git clone git@github.com:gawbul/pathlength-rs.git
 ```
 
 ## Usage
@@ -42,14 +42,14 @@ git clone git@github.com:gawbul/pathlength.git
 ### Run the program from source
 
 ```bash
-cd ~/projects/pathlength
+cd ~/projects/pathlength-rs
 cargo run --release -- -f example_data/acanthephyra_parameters.txt
 ```
 
 ### Run the test suite
 
 ```bash
-cd ~/projects/pathlength
+cd ~/projects/pathlength-rs
 cargo test
 ```
 
@@ -58,7 +58,7 @@ cargo test
 To create an optimized release binary:
 
 ```bash
-cd ~/projects/pathlength
+cd ~/projects/pathlength-rs
 cargo build --release
 ```
 
