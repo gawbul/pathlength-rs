@@ -14,6 +14,7 @@ pub struct Model {
     pub rhabdom_radius: f64,
     pub critical_angle: f64,
     pub old_rhabdom_length: f64,
+    pub debug_mode: bool,
 }
 
 impl Model {
@@ -47,6 +48,7 @@ impl Model {
             rhabdom_radius,
             critical_angle,
             old_rhabdom_length,
+            debug_mode: false,
         }
     }
 
@@ -56,13 +58,16 @@ impl Model {
         println!("Calculating pathlengths for {}...", p.species_name);
 
         let pathlengths_filename = format!("{}_pathlengths.csv", p.species_name);
-        let debug_filename = format!("{}_debug.csv", p.species_name);
-
         let pathlengths_file = File::create(&pathlengths_filename)?;
         let mut pathlengths_writer = BufWriter::new(pathlengths_file);
 
-        let debug_file = File::create(&debug_filename)?;
-        let mut debug_writer = BufWriter::new(debug_file);
+        let mut debug_writer = if self.debug_mode {
+            let debug_filename = format!("{}_debug.csv", p.species_name);
+            let debug_file = File::create(&debug_filename)?;
+            Some(BufWriter::new(debug_file))
+        } else {
+            None
+        };
 
         let increment_amount = p.rhabdom_length / 10.0;
 
@@ -77,11 +82,9 @@ impl Model {
                     "{:.6}\n{:.6}",
                     shielding_pigment, tapetal_pigment
                 )?;
-                writeln!(
-                    debug_writer,
-                    "P: {:.2}, T: {:.2}",
-                    shielding_pigment, tapetal_pigment
-                )?;
+                if let Some(ref mut dw) = debug_writer {
+                    writeln!(dw, "P: {:.2}, T: {:.2}", shielding_pigment, tapetal_pigment)?;
+                }
 
                 for current_facet in 0..self.number_of_facets {
                     let incidence_ommatidial_angle = current_facet as f64 * self.ommatidial_angle;
@@ -228,7 +231,7 @@ impl Model {
                         }
                     }
 
-                    row_data.push("998".to_string());
+                    // Write row
                     writeln!(pathlengths_writer, "{}", row_data.join(","))?;
                 }
 

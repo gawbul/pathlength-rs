@@ -17,6 +17,10 @@ struct Cli {
     #[arg(short = 'f')]
     filename: Option<PathBuf>,
 
+    /// Generate debug CSV output file.
+    #[arg(short = 'd')]
+    debug: bool,
+
     /// Show the program citation.
     #[arg(short = 'c')]
     citation: bool,
@@ -64,6 +68,7 @@ fn main() -> Result<()> {
 
     for params in params_list {
         let mut model = Model::new(params);
+        model.debug_mode = cli.debug;
         model.run_simulation()?;
     }
 

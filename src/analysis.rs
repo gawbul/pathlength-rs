@@ -24,6 +24,7 @@ pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()
     let mut arem = 0.0;
     let mut cc = 0;
     let mut dd = 0;
+    let mut header_count = 0;
 
     for line in reader.lines() {
         let line = line?;
@@ -33,52 +34,7 @@ pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()
             continue;
         }
 
-        if line.contains("998") {
-            let parts: Vec<&str> = line.split(',').collect();
-            let mut tot = 0.0;
-
-            let area = std::f64::consts::PI * (facet + 0.5).powi(2);
-            let mut inci = std::f64::consts::PI * (facet - 0.5).powi(2);
-            if facet == 0.0 {
-                inci = 0.0;
-            }
-            let torus = area - inci;
-            if area > arem {
-                arem = area;
-            }
-
-            for (rhabdom_idx, part) in parts.iter().enumerate() {
-                if *part == "998" {
-                    break;
-                }
-
-                let pathlength: f64 = part.parse().unwrap_or(0.0);
-                let absorbance = if pathlength > 0.0 {
-                    1.0 - (-0.01 * pathlength).exp()
-                } else {
-                    0.0
-                };
-
-                let mut bx = 0.0;
-                if rhabdom_idx == 0 && absorbance > 0.0 {
-                    bx = 100.0 * absorbance;
-                } else if rhabdom_idx > 0 && absorbance > 0.0 {
-                    bx = 100.0 * ((1.0 - tot) * absorbance);
-                }
-
-                if absorbance == 0.0 {
-                    bx = 0.0;
-                }
-
-                tot += bx / 100.0;
-                bx *= torus;
-
-                if rhabdom_idx < rhabdoms.len() {
-                    rhabdoms[rhabdom_idx] += bx;
-                }
-            }
-            facet += 1.0;
-        } else if line == "999" {
+        if line == "999" {
             // End of block, summarize
             let mut sens = 0.0;
             for val in &rhabdoms {
@@ -130,6 +86,52 @@ pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()
             // Reset for next block
             rhabdoms.fill(0.0);
             facet = 0.0;
+            header_count = 0;
+        } else if header_count < 2 {
+            // Shielding or Tapetal pigment header line
+            header_count += 1;
+        } else {
+            // Facet pathlength row
+            let parts: Vec<&str> = line.split(',').collect();
+            let mut tot = 0.0;
+
+            let area = std::f64::consts::PI * (facet + 0.5).powi(2);
+            let mut inci = std::f64::consts::PI * (facet - 0.5).powi(2);
+            if facet == 0.0 {
+                inci = 0.0;
+            }
+            let torus = area - inci;
+            if area > arem {
+                arem = area;
+            }
+
+            for (rhabdom_idx, part) in parts.iter().enumerate() {
+                let pathlength: f64 = part.parse().unwrap_or(0.0);
+                let absorbance = if pathlength > 0.0 {
+                    1.0 - (-0.01 * pathlength).exp()
+                } else {
+                    0.0
+                };
+
+                let mut bx = 0.0;
+                if rhabdom_idx == 0 && absorbance > 0.0 {
+                    bx = 100.0 * absorbance;
+                } else if rhabdom_idx > 0 && absorbance > 0.0 {
+                    bx = 100.0 * ((1.0 - tot) * absorbance);
+                }
+
+                if absorbance == 0.0 {
+                    bx = 0.0;
+                }
+
+                tot += bx / 100.0;
+                bx *= torus;
+
+                if rhabdom_idx < rhabdoms.len() {
+                    rhabdoms[rhabdom_idx] += bx;
+                }
+            }
+            facet += 1.0;
         }
     }
 
