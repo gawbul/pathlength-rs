@@ -97,7 +97,6 @@ pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()
                         yy = rhabdoms[i + 1];
                     }
                     optic_axis = ommatidial_angle * i as f64;
-                    break;
                 }
             }
 
