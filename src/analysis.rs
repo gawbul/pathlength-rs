@@ -58,13 +58,13 @@ pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()
 
             let diff = xz - yy;
             let hwp = xz - halfway_point;
-            let frac = if diff > 0.0 && hwp >= 0.0 {
-                (hwp / (diff + 0.1)).clamp(0.0, 1.0)
+            let frac = if diff > 0.0 {
+                hwp / (diff + 0.1) // allow unbounded forward extrapolation
             } else {
-                0.0
+                0.0 // prevent backward extrapolation
             };
             let oab = frac * ommatidial_angle;
-            let res = (oab + optic_axis).max(0.0);
+            let res = oab + optic_axis;
 
             if cc == 0 && dd > 0 {
                 writeln!(sens_file, "{}", matrix_sens.join(","))?;
