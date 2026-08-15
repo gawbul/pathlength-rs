@@ -172,11 +172,7 @@ impl Model {
                                 rhabdom_length / boa.to_radians().cos().abs()
                             };
 
-                            let v = if x > self.old_rhabdom_length {
-                                x
-                            } else {
-                                self.old_rhabdom_length
-                            };
+                            let v = self.old_rhabdom_length / boa.to_radians().cos().abs();
 
                             let val = if tapetal_pigment == 0.0 || shielding_pigment > 0.0 {
                                 x * facet_num
@@ -196,11 +192,7 @@ impl Model {
                                 z = x;
                             }
 
-                            let v = if (x + z) > self.old_rhabdom_length {
-                                x + z
-                            } else {
-                                self.old_rhabdom_length
-                            };
+                            let v = self.old_rhabdom_length / boa.to_radians().cos().abs();
 
                             let mut val = if tapetal_pigment == 0.0 {
                                 (x + z) * facet_num

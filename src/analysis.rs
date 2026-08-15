@@ -59,7 +59,7 @@ pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()
             let diff = xz - yy;
             let hwp = xz - halfway_point;
             let frac = if diff > 0.0 {
-                hwp / (diff + 0.1) // allow unbounded forward extrapolation
+                hwp / diff
             } else {
                 0.0 // prevent backward extrapolation
             };
