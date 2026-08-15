@@ -222,3 +222,50 @@ fn test_calculate_ressens_full_matrix() {
     let _ = fs::remove_file("test_matrix_summary_res.csv");
     let _ = fs::remove_file("test_matrix_summary_sen.csv");
 }
+
+#[test]
+fn test_calculate_ressens_nephrops_wide_blur_circle() {
+    let params = Parameters {
+        species_name: "test_nephrops_bce18".to_string(),
+        rhabdom_length: 180.0,
+        rhabdom_width: 25.0,
+        eye_diameter: 7800.0,
+        facet_width: 50.0,
+        aperture_diameter: 3200.0,
+        cytoplasm_refractive_index: 1.34,
+        rhabdom_refractive_index: 1.37,
+        blur_circle_extent: 18.0,
+        proximal_rhabdom_angle: 0.0,
+    };
+
+    let mut model = Model::new(params);
+    model.run_simulation().unwrap();
+
+    let res_content = fs::read_to_string("test_nephrops_bce18_summary_res.csv").unwrap();
+    let res_lines: Vec<&str> = res_content.trim().split('\n').collect();
+    assert_eq!(
+        res_lines.len(),
+        11,
+        "Expected 11 rows in resolution summary file"
+    );
+
+    for (row_idx, line) in res_lines.iter().enumerate() {
+        let parts: Vec<&str> = line.split(',').collect();
+        assert_eq!(parts.len(), 11, "Row {}: expected 11 columns", row_idx);
+        for (col_idx, val_str) in parts.iter().enumerate() {
+            let val: i64 = val_str.trim().parse().expect("Valid integer");
+            assert!(
+                val > 0,
+                "Row {}, Col {}: expected positive resolution value, got {}",
+                row_idx,
+                col_idx,
+                val
+            );
+        }
+    }
+
+    // Clean up
+    let _ = fs::remove_file("test_nephrops_bce18_pathlengths.csv");
+    let _ = fs::remove_file("test_nephrops_bce18_summary_res.csv");
+    let _ = fs::remove_file("test_nephrops_bce18_summary_sen.csv");
+}
