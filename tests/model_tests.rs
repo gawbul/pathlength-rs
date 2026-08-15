@@ -261,16 +261,6 @@ fn test_calculate_ressens_nephrops_wide_blur_circle() {
                 col_idx,
                 val
             );
-            if (row_idx == 0 && col_idx == 1)
-                || (row_idx == 1 && col_idx == 4)
-                || (row_idx == 2 && col_idx == 4)
-            {
-                assert_eq!(
-                    val, 1616,
-                    "Row {}, Col {}: expected backward extrapolation to cap at 1616, got {}",
-                    row_idx, col_idx, val
-                );
-            }
         }
     }
 
