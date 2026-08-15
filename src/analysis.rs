@@ -17,6 +17,7 @@ pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()
     let mut sens_file = File::create(&sens_filename)?;
 
     let mut rhabdoms = vec![0.0f64; 21];
+    let mut intensities = vec![0.0f64; 21];
     let mut matrix_sens: Vec<String> = Vec::new();
     let mut matrix_res: Vec<String> = Vec::new();
 
@@ -41,28 +42,48 @@ pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()
                 sens += val;
             }
 
-            let halfway_point = rhabdoms[0] / 2.0;
-            let mut optic_axis = 0.0;
-            let mut xz = rhabdoms[0];
-            let mut yy = rhabdoms[1];
+            // Find true peak of the intensity profile
+            let mut max_intensity = intensities[0];
+            for &v in &intensities {
+                if v > max_intensity {
+                    max_intensity = v;
+                }
+            }
+            let halfway_point = max_intensity / 2.0;
 
-            for i in 1..12 {
-                if halfway_point < rhabdoms[i] {
-                    xz = rhabdoms[i];
-                    if i + 1 < rhabdoms.len() {
-                        yy = rhabdoms[i + 1];
-                    }
-                    optic_axis = ommatidial_angle * i as f64;
+            let mut optic_axis = 0.0;
+            let mut xz = intensities[0];
+            let mut yy = intensities[1];
+
+            // Scan full array to find threshold crossing
+            let mut found_crossing = false;
+            for i in 0..(intensities.len() - 1) {
+                if intensities[i] >= halfway_point && intensities[i + 1] < halfway_point {
+                    xz = intensities[i];
+                    yy = intensities[i + 1];
+                    optic_axis = ommatidial_angle * (i as f64);
+                    found_crossing = true;
+                    break;
                 }
             }
 
-            let diff = xz - yy;
-            let hwp = xz - halfway_point;
-            let frac = if diff > 0.0 {
-                hwp / diff
+            let frac = if !found_crossing {
+                // If it never drops below half-max (extreme blur), cap at the maximum measured angle
+                optic_axis = ommatidial_angle * ((intensities.len() - 1) as f64);
+                0.0
             } else {
-                0.0 // prevent backward extrapolation
+                let diff = xz - yy;
+                let hwp = xz - halfway_point;
+                if diff > 0.0 {
+                    let mut f = hwp / diff;
+                    // strictly bound frac between 0.0 and 1.0 to guarantee correct interpolation
+                    f = f.clamp(0.0, 1.0);
+                    f
+                } else {
+                    0.0
+                }
             };
+
             let oab = frac * ommatidial_angle;
             let res = oab + optic_axis;
 
@@ -89,6 +110,7 @@ pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()
 
             // Reset for next block
             rhabdoms.fill(0.0);
+            intensities.fill(0.0);
             facet = 0.0;
             header_count = 0;
         } else if header_count < 2 {
@@ -129,10 +151,10 @@ pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()
                 }
 
                 tot += bx / 100.0;
-                bx *= torus;
 
                 if rhabdom_idx < rhabdoms.len() {
-                    rhabdoms[rhabdom_idx] += bx;
+                    intensities[rhabdom_idx] += bx; // Intensity profile (no torus weighting)
+                    rhabdoms[rhabdom_idx] += bx * torus; // Total Sensitivity (area weighted)
                 }
             }
             facet += 1.0;
