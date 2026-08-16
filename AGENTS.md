@@ -130,6 +130,18 @@ columns vary the tapetal (reflecting) pigment**. A resolution cell reading `NaN`
 that state has no acceptance angle: it either absorbs no light, or its profile is
 annular (dips below half maximum on the optic axis, so the light forms a ring).
 
+### Compatibility with output from earlier releases
+
+The summary files changed units and format in this version and are **not comparable**
+with earlier output. `summary_res` was the FWHM in centidegrees written as
+`int(200 x half-width)`, and is now the FWHM in degrees; `summary_sen` was a
+truncated integer percentage and is now a float. Dividing an old resolution by 100
+does not recover the new value, because the calculation changed as well: the blur
+circle no longer aliases facets onto whole rhabdom offsets, the point spread function
+is weighted by annulus area, facet transmission attenuates absorbed intensity rather
+than path length, and the profile is no longer truncated at 21 rhabdoms.
+
+
 ## Key Implementation Notes
 
 - Ray angles (`boa`) are measured from the rhabdom axis, so the angle at the wall

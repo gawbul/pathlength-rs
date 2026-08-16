@@ -53,6 +53,26 @@ cd ~/projects/pathlength-rs
 cargo test
 ```
 
+Outputs:
+
+```bash
+running 12 tests
+test test_deposit_grows_beyond_fixed_array ... ok
+test test_initial_calculations ... ok
+test test_rejects_unphysical_parameters ... ok
+test test_blur_offset_spans_extent_evenly ... ok
+test test_pathlengths_are_raw_geometry ... ok
+test test_guided_ray_ignores_screening_pigment ... ok
+test test_summarise_block_resolution ... ok
+test test_single_facet_sensitivity_is_beer_lambert ... ok
+test test_rays_stay_within_physical_geometry ... ok
+test test_summary_matrices_are_usable ... ok
+test test_run_simulation_produces_well_formed_blocks ... ok
+test test_debug_flag_output ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
 ### Build the program
 
 To create an optimized release binary:
@@ -67,7 +87,7 @@ The binary will be located at `target/release/pathlength`.
 ### Display program usage
 
 ```bash
-./target/release/pathlength -h
+./target/release/pathlength-rs -h
 ```
 
 Outputs:
@@ -90,7 +110,7 @@ Options:
 ### Display citation information
 
 ```bash
-./target/release/pathlength -c
+./target/release/pathlength-rs -c
 ```
 
 Outputs:
@@ -104,13 +124,13 @@ Advances in Marine Biology: The Ecology and Biology of Nephrops norvegicus. Oxfo
 ### Display license information
 
 ```bash
-./target/release/pathlength -l
+./target/release/pathlength-rs -l
 ```
 
 ### Display program version
 
 ```bash
-./target/release/pathlength -v
+./target/release/pathlength-rs -v
 ```
 
 Outputs:
@@ -122,7 +142,7 @@ pathlength version 0.6.0
 ## Run the program
 
 ```bash
-./target/release/pathlength -f example_data/acanthephyra_parameters.txt
+./target/release/pathlength-rs -f example_data/acanthephyra_parameters.txt
 ```
 
 Outputs:
@@ -130,21 +150,64 @@ Outputs:
 ```bash
 Parsing input parameters from "example_data/acanthephyra_parameters.txt"...
 --- Running simulation for acanthephyra ---
+20 facets across the eyeshine patch, ommatidial angle 1.0396 deg, critical angle 12.0125 deg
 Calculating pathlengths for acanthephyra...
-P: 0.00, T: 0.00
-P: 0.00, T: 12.70
-...
 INFO: Calculating resolution and sensitivity...
 --- Finished simulation for acanthephyra ---
+
+--- Running simulation for acanthephyra_bce3 ---
+20 facets across the eyeshine patch, ommatidial angle 1.0396 deg, critical angle 12.0125 deg
+Calculating pathlengths for acanthephyra_bce3...
+INFO: Calculating resolution and sensitivity...
+--- Finished simulation for acanthephyra_bce3 ---
+
+--- Running simulation for acanthephyra_bce6 ---
+20 facets across the eyeshine patch, ommatidial angle 1.0396 deg, critical angle 12.0125 deg
+Calculating pathlengths for acanthephyra_bce6...
+INFO: Calculating resolution and sensitivity...
+--- Finished simulation for acanthephyra_bce6 ---
+
 All simulations complete.
 ```
 
-### Run with debug output
-
-To generate optional `{species}_debug.csv` files containing simulation debug logs (e.g. pigment migration steps):
+A parameter set that cannot describe a physically realisable eye is reported and
+skipped, and the run ends with a non-zero exit status if any set was skipped. Runs
+that complete may still print warnings about the simulation itself:
 
 ```bash
-./target/release/pathlength -f example_data/acanthephyra_parameters.txt -d
+./target/release/pathlength-rs -f example_data/astacodes_parameters.txt
+```
+
+Outputs:
+
+```bash
+Parsing input parameters from "example_data/astacodes_parameters.txt"...
+--- Running simulation for astacodes ---
+7 facets across the eyeshine patch, ommatidial angle 4.1201 deg, critical angle 12.0125 deg
+Calculating pathlengths for astacodes...
+WARNING: 9 of 847 rays exceeded 90 degrees to the rhabdom axis and were discarded.
+INFO: Calculating resolution and sensitivity...
+--- Finished simulation for astacodes ---
+
+All simulations complete.
+```
+
+The warnings that can appear are:
+
+| Warning | Meaning |
+| --- | --- |
+| `N of M rays exceeded 90 degrees to the rhabdom axis` | Those rays can no longer advance towards the proximal end and were discarded. They contribute whatever path they had already accumulated. |
+| `N of M pigment states have an annular profile` | The light forms a ring rather than a central spot, so those states have no acceptance angle and are reported as `NaN`. |
+| `N of M pigment states absorb no light` | Their resolution is reported as `NaN`. |
+
+### Run with debug output
+
+To generate an optional `{species}_debug.csv` recording one row per traced ray - its
+angle of incidence, refracted angle, blur offset, entry angle, facet transmission,
+terminating case and the path lengths it accumulated:
+
+```bash
+./target/release/pathlength-rs -f example_data/acanthephyra_parameters.txt -d
 ```
 
 ## Required parameters
@@ -247,6 +310,25 @@ The angular sensitivity function is even about the optic axis — offset *j* sta
 both *+j* and *−j* — so the acceptance angle is twice the radius at which it first
 falls below half its maximum, measured **from the axis**. Measuring from the profile's
 peak would understate a flat-topped profile by the peak's own offset.
+
+### Compatibility with output from earlier releases
+
+The summary files changed both units and format in this version, and the values are
+**not comparable** with those produced by earlier releases.
+
+| File | Earlier releases | Now |
+| --- | --- | --- |
+| `summary_res` | FWHM in **centidegrees**, written as `int(200 × half-width)` | FWHM in **degrees**, to 4 decimal places |
+| `summary_sen` | Percent absorbed, truncated to an integer | Percent absorbed, to 4 decimal places |
+| `pathlengths` | Blocks of positional lines closed by `999`, with facet transmission already folded into every value | Rectangular CSV with a header; raw geometry |
+
+Dividing an old resolution by 100 does **not** recover the new value. The calculation
+itself changed: the blur circle no longer aliases facets onto whole rhabdom offsets,
+the point spread function is weighted by annulus area, facet transmission attenuates
+absorbed intensity rather than path length, and the profile is no longer truncated at
+21 rhabdoms. For *Nephrops norvegicus* flat lateral, dark-adapted, earlier releases
+reported `833` and `78`; rescaling those gives 8.33° and 78%, against 9.58° and
+83.03% now.
 
 ## Model notes
 
