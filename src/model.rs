@@ -187,10 +187,7 @@ impl Model {
                         {
                             // CASE 2: Reflection from edge
                             let x = self.rhabdom_radius / boa.to_radians().sin().abs();
-                            let mut z = (rhabdom_length - y) / boa.to_radians().cos().abs();
-                            if z > x {
-                                z = x;
-                            }
+                            let z = (rhabdom_length - y) / boa.to_radians().cos().abs();
 
                             let v = self.old_rhabdom_length / boa.to_radians().cos().abs();
 
