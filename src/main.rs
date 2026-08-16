@@ -66,12 +66,32 @@ fn main() -> Result<()> {
     println!("Parsing input parameters from {:?}...", filename);
     let params_list = parse_input_parameters(&filename)?;
 
+    let total = params_list.len();
+    let mut failed = 0usize;
     for params in params_list {
-        let mut model = Model::new(params);
+        let species_name = params.species_name.clone();
+        let mut model = match Model::new(params) {
+            Ok(model) => model,
+            Err(err) => {
+                eprintln!("Skipping {}: {}", species_name, err);
+                failed += 1;
+                continue;
+            }
+        };
         model.debug_mode = cli.debug;
-        model.run_simulation()?;
+        if let Err(err) = model.run_simulation() {
+            eprintln!("Simulation for {} failed: {}", species_name, err);
+            failed += 1;
+        }
     }
 
+    if failed > 0 {
+        anyhow::bail!(
+            "{} of {} parameter sets could not be simulated.",
+            failed,
+            total
+        );
+    }
     println!("All simulations complete.");
 
     Ok(())

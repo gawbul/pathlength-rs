@@ -1,3 +1,4 @@
+use anyhow::{Result, bail};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -15,11 +16,83 @@ pub struct Parameters {
 }
 
 impl Parameters {
-    /// Validates and corrects parameters after loading
-    pub fn post_process(&mut self) {
-        // Ensure blur circle is at least 1.0
-        if self.blur_circle_extent < 1.0 {
-            self.blur_circle_extent = 1.0;
+    /// Rejects inputs that would produce NaNs or nonsensical optics.
+    ///
+    /// Without these checks an aperture wider than the eye yields `sqrt` of a
+    /// negative number and an empty simulation, while a cytoplasm refractive index
+    /// at or above the rhabdom's yields a NaN critical angle that silently makes
+    /// every total-internal-reflection test evaluate to false.
+    pub fn validate(&self) -> Result<()> {
+        if self.species_name.trim().is_empty() {
+            bail!("species name is required");
         }
+        // Reject non-finite values before any range check. Rust's f64 parser accepts
+        // "NaN" and "inf", and every ordered comparison against NaN is false, so a NaN
+        // would slip past the constraints below and reappear as an undefined critical
+        // angle or blur offset - reproducing the very silent failures the range checks
+        // exist to prevent.
+        for (name, value) in [
+            ("rhabdom length", self.rhabdom_length),
+            ("rhabdom width", self.rhabdom_width),
+            ("eye diameter", self.eye_diameter),
+            ("facet width", self.facet_width),
+            ("aperture diameter", self.aperture_diameter),
+            (
+                "cytoplasm refractive index",
+                self.cytoplasm_refractive_index,
+            ),
+            ("rhabdom refractive index", self.rhabdom_refractive_index),
+            ("blur circle extent", self.blur_circle_extent),
+            ("proximal rhabdom angle", self.proximal_rhabdom_angle),
+        ] {
+            if !value.is_finite() {
+                bail!("{} must be a finite number, got {}", name, value);
+            }
+        }
+
+        for (name, value) in [
+            ("rhabdom length", self.rhabdom_length),
+            ("rhabdom width", self.rhabdom_width),
+            ("eye diameter", self.eye_diameter),
+            ("facet width", self.facet_width),
+            ("aperture diameter", self.aperture_diameter),
+        ] {
+            if value <= 0.0 {
+                bail!("{} must be greater than 0 um, got {}", name, value);
+            }
+        }
+        if self.aperture_diameter >= self.eye_diameter {
+            bail!(
+                "aperture diameter ({} um) must be smaller than eye diameter ({} um)",
+                self.aperture_diameter,
+                self.eye_diameter
+            );
+        }
+        if self.cytoplasm_refractive_index <= 1.0 {
+            bail!(
+                "cytoplasm refractive index must be greater than 1.0, got {}",
+                self.cytoplasm_refractive_index
+            );
+        }
+        if self.rhabdom_refractive_index <= self.cytoplasm_refractive_index {
+            bail!(
+                "rhabdom refractive index ({}) must exceed cytoplasm refractive index ({}) for total internal reflection",
+                self.rhabdom_refractive_index,
+                self.cytoplasm_refractive_index
+            );
+        }
+        if self.blur_circle_extent < 1.0 {
+            bail!(
+                "blur circle extent must be at least 1 rhabdom, got {}",
+                self.blur_circle_extent
+            );
+        }
+        if self.proximal_rhabdom_angle < 0.0 {
+            bail!(
+                "proximal rhabdom angle must not be negative, got {}",
+                self.proximal_rhabdom_angle
+            );
+        }
+        Ok(())
     }
 }
