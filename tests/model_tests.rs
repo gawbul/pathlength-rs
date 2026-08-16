@@ -117,6 +117,35 @@ fn test_rejects_unphysical_parameters() {
             Box::new(|p: &mut Parameters| p.blur_circle_extent = 0.0),
             "blur circle extent",
         ),
+        // Rust's f64 parser accepts "NaN" and "inf", and every ordered comparison
+        // against NaN is false, so these used to slip past every range check and
+        // produce plausible-looking output: a NaN cytoplasm index gave a NaN critical
+        // angle and 83% sensitivity with no warning at all.
+        (
+            "NaN blur circle",
+            Box::new(|p: &mut Parameters| p.blur_circle_extent = f64::NAN),
+            "must be a finite number",
+        ),
+        (
+            "NaN cytoplasm index",
+            Box::new(|p: &mut Parameters| p.cytoplasm_refractive_index = f64::NAN),
+            "must be a finite number",
+        ),
+        (
+            "infinite rhabdom index",
+            Box::new(|p: &mut Parameters| p.rhabdom_refractive_index = f64::INFINITY),
+            "must be a finite number",
+        ),
+        (
+            "infinite proximal angle",
+            Box::new(|p: &mut Parameters| p.proximal_rhabdom_angle = f64::INFINITY),
+            "must be a finite number",
+        ),
+        (
+            "negative infinite eye diameter",
+            Box::new(|p: &mut Parameters| p.eye_diameter = f64::NEG_INFINITY),
+            "must be a finite number",
+        ),
         // astacodes ships with an 18-rhabdom blur circle but only 7 facets across
         // the eyeshine patch, leaving 11 rhabdom offsets receiving no light at all.
         (
@@ -372,6 +401,47 @@ fn test_summarise_block_resolution() {
     let empty = summarise_block(&model, &[]);
     assert!(empty.fwhm_degrees.is_nan());
     assert_eq!(empty.sensitivity_percent, 0.0);
+
+    // The angular sensitivity function is even about the optic axis, so its width is
+    // measured from the axis. Measuring from the peak understates a flat-topped
+    // profile by the peak's own offset: here the light is above half maximum out to
+    // radius 2.828, so the full width is 5.657 ommatidial angles, not 3.657.
+    let flat_top: Vec<f64> = [0.99, 1.0, 0.98, 0.4, 0.0]
+        .iter()
+        .enumerate()
+        .map(|(j, v)| v * ring_area(j))
+        .collect();
+    let got = summarise_block(&model, &flat_top);
+    assert_eq!(got.peak_offset, 1);
+    assert!(
+        !got.annular,
+        "a profile at maximum on the axis is not annular"
+    );
+    let want = 2.0 * 2.8275862068965516 * omm;
+    assert!(
+        (got.fwhm_degrees - want).abs() < 1e-9,
+        "expected FWHM {:.6} deg measured from the axis, got {:.6}",
+        want,
+        got.fwhm_degrees
+    );
+
+    // A profile that dips below half maximum on the axis is a ring. Its supra-half
+    // region does not contain the axis, so there is no acceptance angle: reporting the
+    // ring's thickness instead would read as an implausibly sharp eye.
+    let annular: Vec<f64> = [0.2, 0.6, 1.0, 0.6, 0.2, 0.0]
+        .iter()
+        .enumerate()
+        .map(|(j, v)| v * ring_area(j))
+        .collect();
+    let got = summarise_block(&model, &annular);
+    assert!(got.annular, "expected the profile to be flagged as annular");
+    assert!(
+        got.fwhm_degrees.is_nan(),
+        "expected an undefined FWHM for an annular profile, got {}",
+        got.fwhm_degrees
+    );
+    // Sensitivity is independent of the resolution classification.
+    assert!(got.sensitivity_percent > 0.0);
 }
 
 #[test]

@@ -26,6 +26,30 @@ impl Parameters {
         if self.species_name.trim().is_empty() {
             bail!("species name is required");
         }
+        // Reject non-finite values before any range check. Rust's f64 parser accepts
+        // "NaN" and "inf", and every ordered comparison against NaN is false, so a NaN
+        // would slip past the constraints below and reappear as an undefined critical
+        // angle or blur offset - reproducing the very silent failures the range checks
+        // exist to prevent.
+        for (name, value) in [
+            ("rhabdom length", self.rhabdom_length),
+            ("rhabdom width", self.rhabdom_width),
+            ("eye diameter", self.eye_diameter),
+            ("facet width", self.facet_width),
+            ("aperture diameter", self.aperture_diameter),
+            (
+                "cytoplasm refractive index",
+                self.cytoplasm_refractive_index,
+            ),
+            ("rhabdom refractive index", self.rhabdom_refractive_index),
+            ("blur circle extent", self.blur_circle_extent),
+            ("proximal rhabdom angle", self.proximal_rhabdom_angle),
+        ] {
+            if !value.is_finite() {
+                bail!("{} must be a finite number, got {}", name, value);
+            }
+        }
+
         for (name, value) in [
             ("rhabdom length", self.rhabdom_length),
             ("rhabdom width", self.rhabdom_width),
@@ -33,8 +57,7 @@ impl Parameters {
             ("facet width", self.facet_width),
             ("aperture diameter", self.aperture_diameter),
         ] {
-            // Spelled out rather than negated so that NaN is rejected explicitly.
-            if value.is_nan() || value <= 0.0 {
+            if value <= 0.0 {
                 bail!("{} must be greater than 0 um, got {}", name, value);
             }
         }

@@ -127,7 +127,8 @@ For each parameter set with species name "X", generates:
 
 Both summary files are 11x11: **rows vary the shielding (proximal screening) pigment,
 columns vary the tapetal (reflecting) pigment**. A resolution cell reading `NaN` means
-the profile never falls to half its maximum, so the acceptance angle is undefined.
+that state has no acceptance angle: it either absorbs no light, or its profile is
+annular (dips below half maximum on the optic axis, so the light forms a ring).
 
 ## Key Implementation Notes
 

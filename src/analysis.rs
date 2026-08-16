@@ -38,14 +38,17 @@ pub fn deposit(dst: &mut Vec<f64>, offset: usize, amount: f64) {
 /// The resolution and sensitivity derived from one pigment block.
 #[derive(Debug, Clone, Copy)]
 pub struct BlockSummary {
-    /// FWHM of the point spread function, in degrees. NaN when the profile carries
-    /// no light at all, in which case the acceptance angle is undefined.
+    /// The acceptance angle: the full width at half maximum of the angular sensitivity
+    /// function, in degrees. NaN when the profile carries no light or is annular, in
+    /// which case there is no acceptance angle to report.
     pub fwhm_degrees: f64,
     /// Percentage of incident light absorbed, averaged over the eyeshine patch (0-100).
     pub sensitivity_percent: f64,
-    /// The rhabdom offset carrying the most light. A non-zero value means the profile
-    /// is annular and its FWHM is not a simple acceptance angle.
+    /// The rhabdom offset carrying the most light.
     pub peak_offset: usize,
+    /// Set when the profile dips below half its maximum on the optic axis, so the
+    /// light forms a ring rather than a central spot.
+    pub annular: bool,
 }
 
 /// Converts one block's area-weighted absorption profile into resolution and
@@ -55,6 +58,7 @@ pub fn summarise_block(model: &Model, rhabdoms: &[f64]) -> BlockSummary {
         fwhm_degrees: f64::NAN,
         sensitivity_percent: 0.0,
         peak_offset: 0,
+        annular: false,
     };
 
     // Sensitivity: the area-weighted mean of the absorbed percentage over the
@@ -96,14 +100,24 @@ pub fn summarise_block(model: &Model, rhabdoms: &[f64]) -> BlockSummary {
     }
     let half = psf[peak] / 2.0;
 
-    // Walk outwards from the peak to the first crossing of the half maximum and
-    // interpolate linearly between the bracketing offsets.
-    for i in peak..psf.len() - 1 {
+    // A profile that is already below half its maximum on the optic axis is annular:
+    // the light forms a ring, and the region above half maximum is a band that does
+    // not contain the axis. There is no acceptance angle to report, so the width is
+    // left undefined rather than substituting the ring's thickness for it.
+    if psf[0] < half {
+        out.annular = true;
+        return out;
+    }
+
+    // The angular sensitivity function is even about the optic axis - offset j stands
+    // for both +j and -j - so its full width at half maximum is twice the radius at
+    // which it first falls below half. That radius is measured from the axis, not from
+    // the peak: on a flat-topped profile whose maximum sits slightly off-axis,
+    // measuring from the peak would understate the width by the peak's own offset.
+    for i in 0..psf.len() - 1 {
         if psf[i] >= half && psf[i + 1] < half {
             let frac = (psf[i] - half) / (psf[i] - psf[i + 1]);
-            let crossing = i as f64 + frac;
-            let hwhm = (crossing - peak as f64) * model.ommatidial_angle;
-            out.fwhm_degrees = 2.0 * hwhm;
+            out.fwhm_degrees = 2.0 * (i as f64 + frac) * model.ommatidial_angle;
             break;
         }
     }
@@ -167,19 +181,22 @@ pub fn calculate_ressens(model: &Model, summaries: &[BlockSummary]) -> Result<()
         |b| b.sensitivity_percent,
     )?;
 
-    let undefined = summaries.iter().filter(|b| b.fwhm_degrees.is_nan()).count();
-    let annular = summaries.iter().filter(|b| b.peak_offset != 0).count();
-    if undefined > 0 {
+    let annular = summaries.iter().filter(|b| b.annular).count();
+    let dark = summaries
+        .iter()
+        .filter(|b| !b.annular && b.fwhm_degrees.is_nan())
+        .count();
+    if annular > 0 {
         println!(
-            "WARNING: {} of {} blocks have no half-maximum crossing; their resolution is reported as NaN.",
-            undefined,
+            "WARNING: {} of {} pigment states have an annular profile, with the light forming a ring rather than a central spot; they have no acceptance angle and are reported as NaN.",
+            annular,
             summaries.len()
         );
     }
-    if annular > 0 {
+    if dark > 0 {
         println!(
-            "WARNING: {} of {} blocks peak away from the optic axis (annular profile); their FWHM is not a simple acceptance angle.",
-            annular,
+            "WARNING: {} of {} pigment states absorb no light; their resolution is reported as NaN.",
+            dark,
             summaries.len()
         );
     }
