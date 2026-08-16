@@ -1,171 +1,207 @@
-use anyhow::{Context, Result};
+use crate::model::{Model, PIGMENT_STEPS};
+use anyhow::{Context, Result, bail};
+use std::f64::consts::PI;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufWriter, Write};
 
-pub fn calculate_ressens(species_name: &str, ommatidial_angle: f64) -> Result<()> {
-    println!("INFO: Calculating resolution and sensitivity...");
+/// The rhabdom absorption coefficient in um^-1, used in the Beer-Lambert absorbance
+/// 1 - exp(-k*L). Reported values for crustacean rhabdoms span roughly 0.0067 to
+/// 0.01 um^-1.
+pub const ABSORPTION_COEFFICIENT: f64 = 0.01;
 
-    let pathlengths_filename = format!("{}_pathlengths.csv", species_name);
-    let res_filename = format!("{}_summary_res.csv", species_name);
-    let sens_filename = format!("{}_summary_sen.csv", species_name);
+/// The area, in squared facet widths, of the annulus of rhabdoms lying at the given
+/// whole-rhabdom offset from the optic axis. This is the same measure used to weight
+/// the contributing facets, so dividing an area-weighted total by it yields a radial
+/// area density.
+pub fn ring_area(offset: usize) -> f64 {
+    if offset == 0 {
+        return PI * 0.25;
+    }
+    let outer = PI * (offset as f64 + 0.5).powi(2);
+    let inner = PI * (offset as f64 - 0.5).powi(2);
+    outer - inner
+}
 
-    let file = File::open(&pathlengths_filename)
-        .with_context(|| format!("Failed to open {}", pathlengths_filename))?;
-    let reader = BufReader::new(file);
+/// Adds an amount at the given offset, growing the profile as required. Earlier
+/// versions used a fixed 21-element array and silently discarded everything beyond
+/// it, which lost up to a quarter of the absorbed light for widely blurred eyes.
+pub fn deposit(dst: &mut Vec<f64>, offset: usize, amount: f64) {
+    if amount == 0.0 {
+        return;
+    }
+    if dst.len() <= offset {
+        dst.resize(offset + 1, 0.0);
+    }
+    dst[offset] += amount;
+}
 
-    let mut res_file = File::create(&res_filename)?;
-    let mut sens_file = File::create(&sens_filename)?;
+/// The resolution and sensitivity derived from one pigment block.
+#[derive(Debug, Clone, Copy)]
+pub struct BlockSummary {
+    /// FWHM of the point spread function, in degrees. NaN when the profile carries
+    /// no light at all, in which case the acceptance angle is undefined.
+    pub fwhm_degrees: f64,
+    /// Percentage of incident light absorbed, averaged over the eyeshine patch (0-100).
+    pub sensitivity_percent: f64,
+    /// The rhabdom offset carrying the most light. A non-zero value means the profile
+    /// is annular and its FWHM is not a simple acceptance angle.
+    pub peak_offset: usize,
+}
 
-    let mut rhabdoms = vec![0.0f64; 21];
-    let mut intensities = vec![0.0f64; 21];
-    let mut matrix_sens: Vec<String> = Vec::new();
-    let mut matrix_res: Vec<String> = Vec::new();
+/// Converts one block's area-weighted absorption profile into resolution and
+/// sensitivity.
+pub fn summarise_block(model: &Model, rhabdoms: &[f64]) -> BlockSummary {
+    let mut out = BlockSummary {
+        fwhm_degrees: f64::NAN,
+        sensitivity_percent: 0.0,
+        peak_offset: 0,
+    };
 
-    let mut facet: f64 = 0.0;
-    let mut arem = 0.0;
-    let mut cc = 0;
-    let mut dd = 0;
-    let mut header_count = 0;
+    // Sensitivity: the area-weighted mean of the absorbed percentage over the
+    // eyeshine patch. The facet weights telescope to exactly pi*(N-0.5)^2, so
+    // dividing by that area makes this a true weighted mean in the range 0-100.
+    let total: f64 = rhabdoms.iter().sum();
+    let patch_area = PI * (model.number_of_facets as f64 - 0.5).powi(2);
+    if patch_area > 0.0 {
+        out.sensitivity_percent = total / patch_area;
+    }
 
-    for line in reader.lines() {
-        let line = line?;
-        let line = line.trim();
+    if rhabdoms.is_empty() {
+        return out;
+    }
 
-        if line.is_empty() {
+    // Point spread function: light per unit area at each rhabdom offset. The
+    // contributing facets are weighted by their source annulus, so the light arriving
+    // at an offset must be divided by the annulus it is spread over to recover an
+    // intensity. Without this the profile rises monotonically with offset simply
+    // because outer annuli contain more ommatidia.
+    //
+    // The profile ends at the outermost rhabdom that receives any light, so the next
+    // offset out is genuinely dark. Including that zero captures the falling edge of
+    // the blur circle, which is where a top-hat profile crosses its half maximum.
+    let mut psf = vec![0.0f64; rhabdoms.len() + 1];
+    for (j, &v) in rhabdoms.iter().enumerate() {
+        psf[j] = v / ring_area(j);
+    }
+
+    let mut peak = 0usize;
+    for (j, &v) in psf.iter().enumerate() {
+        if v > psf[peak] {
+            peak = j;
+        }
+    }
+    out.peak_offset = peak;
+    if psf[peak] <= 0.0 {
+        return out;
+    }
+    let half = psf[peak] / 2.0;
+
+    // Walk outwards from the peak to the first crossing of the half maximum and
+    // interpolate linearly between the bracketing offsets.
+    for i in peak..psf.len() - 1 {
+        if psf[i] >= half && psf[i + 1] < half {
+            let frac = (psf[i] - half) / (psf[i] - psf[i + 1]);
+            let crossing = i as f64 + frac;
+            let hwhm = (crossing - peak as f64) * model.ommatidial_angle;
+            out.fwhm_degrees = 2.0 * hwhm;
+            break;
+        }
+    }
+    out
+}
+
+/// Adds one facet's traced ray into the area-weighted absorption profile, which
+/// records how much light reaches each whole-rhabdom offset from the optic axis.
+pub fn accumulate(model: &Model, profile: &mut Vec<f64>, facet_index: usize, pathlengths: &[f64]) {
+    // Light gathered by this facet, and the rhabdom offset its image lands on.
+    let transmission = model.facet_transmission(facet_index);
+    let source_area = ring_area(facet_index);
+    let offset = model.blur_offset(facet_index);
+    let base = offset.floor() as usize;
+    let frac = offset - base as f64;
+
+    let mut tot = 0.0f64;
+    for (rhabdom, &pathlength) in pathlengths.iter().enumerate() {
+        if pathlength <= 0.0 {
             continue;
         }
+        // Fraction of the light still travelling that this rhabdom absorbs.
+        let absorbed = (1.0 - tot) * (1.0 - (-ABSORPTION_COEFFICIENT * pathlength).exp());
+        tot += absorbed;
+        // Facet transmission attenuates the flux entering the eye; it does not shorten
+        // the geometric path, so it multiplies the absorbed intensity rather than the
+        // exponent.
+        let weighted = 100.0 * transmission * absorbed * source_area;
 
-        if line == "999" {
-            // End of block, summarize
-            let mut sens = 0.0;
-            for val in &rhabdoms {
-                sens += val;
-            }
-
-            // Find true peak of the intensity profile
-            let mut max_intensity = intensities[0];
-            for &v in &intensities {
-                if v > max_intensity {
-                    max_intensity = v;
-                }
-            }
-            let halfway_point = max_intensity / 2.0;
-
-            let mut optic_axis = 0.0;
-            let mut xz = intensities[0];
-            let mut yy = intensities[1];
-
-            // Scan full array to find threshold crossing
-            let mut found_crossing = false;
-            for i in 0..(intensities.len() - 1) {
-                if intensities[i] >= halfway_point && intensities[i + 1] < halfway_point {
-                    xz = intensities[i];
-                    yy = intensities[i + 1];
-                    optic_axis = ommatidial_angle * (i as f64);
-                    found_crossing = true;
-                    break;
-                }
-            }
-
-            let frac = if !found_crossing {
-                // If it never drops below half-max (extreme blur), cap at the maximum measured angle
-                optic_axis = ommatidial_angle * ((intensities.len() - 1) as f64);
-                0.0
-            } else {
-                let diff = xz - yy;
-                let hwp = xz - halfway_point;
-                if diff > 0.0 {
-                    let mut f = hwp / diff;
-                    // strictly bound frac between 0.0 and 1.0 to guarantee correct interpolation
-                    f = f.clamp(0.0, 1.0);
-                    f
-                } else {
-                    0.0
-                }
-            };
-
-            let oab = frac * ommatidial_angle;
-            let res = oab + optic_axis;
-
-            if cc == 0 && dd > 0 {
-                writeln!(sens_file, "{}", matrix_sens.join(","))?;
-                writeln!(res_file, "{}", matrix_res.join(","))?;
-                matrix_sens.clear();
-                matrix_res.clear();
-            }
-
-            if arem > 0.0 {
-                matrix_sens.push(format!("{}", (sens / arem) as i64));
-            } else {
-                matrix_sens.push("0".to_string());
-            }
-
-            matrix_res.push(format!("{}", (res * 200.0) as i64));
-
-            cc += 1;
-            if cc == 11 {
-                dd += 1;
-                cc = 0;
-            }
-
-            // Reset for next block
-            rhabdoms.fill(0.0);
-            intensities.fill(0.0);
-            facet = 0.0;
-            header_count = 0;
-        } else if header_count < 2 {
-            // Shielding or Tapetal pigment header line
-            header_count += 1;
-        } else {
-            // Facet pathlength row
-            let parts: Vec<&str> = line.split(',').collect();
-            let mut tot = 0.0;
-
-            let area = std::f64::consts::PI * (facet + 0.5).powi(2);
-            let mut inci = std::f64::consts::PI * (facet - 0.5).powi(2);
-            if facet == 0.0 {
-                inci = 0.0;
-            }
-            let torus = area - inci;
-            if area > arem {
-                arem = area;
-            }
-
-            for (rhabdom_idx, part) in parts.iter().enumerate() {
-                let pathlength: f64 = part.parse().unwrap_or(0.0);
-                let absorbance = if pathlength > 0.0 {
-                    1.0 - (-0.01 * pathlength).exp()
-                } else {
-                    0.0
-                };
-
-                let mut bx = 0.0;
-                if rhabdom_idx == 0 && absorbance > 0.0 {
-                    bx = 100.0 * absorbance;
-                } else if rhabdom_idx > 0 && absorbance > 0.0 {
-                    bx = 100.0 * ((1.0 - tot) * absorbance);
-                }
-
-                if absorbance == 0.0 {
-                    bx = 0.0;
-                }
-
-                tot += bx / 100.0;
-
-                if rhabdom_idx < rhabdoms.len() {
-                    intensities[rhabdom_idx] += bx; // Intensity profile (no torus weighting)
-                    rhabdoms[rhabdom_idx] += bx * torus; // Total Sensitivity (area weighted)
-                }
-            }
-            facet += 1.0;
+        // The blur displacement is continuous, so split the light between the two
+        // rhabdom offsets that bracket it.
+        deposit(profile, base + rhabdom, weighted * (1.0 - frac));
+        if frac > 0.0 {
+            deposit(profile, base + rhabdom + 1, weighted * frac);
         }
     }
+}
 
-    // Write final line
-    if !matrix_sens.is_empty() {
-        writeln!(sens_file, "{}", matrix_sens.join(","))?;
-        writeln!(res_file, "{}", matrix_res.join(","))?;
+/// Writes the resolution and sensitivity matrices for the pigment states accumulated
+/// during the simulation.
+pub fn calculate_ressens(model: &Model, summaries: &[BlockSummary]) -> Result<()> {
+    let species_name = &model.params.species_name;
+    println!("INFO: Calculating resolution and sensitivity...");
+
+    if summaries.len() != PIGMENT_STEPS * PIGMENT_STEPS {
+        bail!(
+            "expected {} pigment states, got {}",
+            PIGMENT_STEPS * PIGMENT_STEPS,
+            summaries.len()
+        );
     }
 
+    write_summary_matrix(
+        &format!("{}_summary_res.csv", species_name),
+        summaries,
+        |b| b.fwhm_degrees,
+    )?;
+    write_summary_matrix(
+        &format!("{}_summary_sen.csv", species_name),
+        summaries,
+        |b| b.sensitivity_percent,
+    )?;
+
+    let undefined = summaries.iter().filter(|b| b.fwhm_degrees.is_nan()).count();
+    let annular = summaries.iter().filter(|b| b.peak_offset != 0).count();
+    if undefined > 0 {
+        println!(
+            "WARNING: {} of {} blocks have no half-maximum crossing; their resolution is reported as NaN.",
+            undefined,
+            summaries.len()
+        );
+    }
+    if annular > 0 {
+        println!(
+            "WARNING: {} of {} blocks peak away from the optic axis (annular profile); their FWHM is not a simple acceptance angle.",
+            annular,
+            summaries.len()
+        );
+    }
+
+    Ok(())
+}
+
+/// Writes an 11x11 matrix with shielding pigment position varying down the rows and
+/// tapetal pigment position across the columns.
+fn write_summary_matrix<F>(filename: &str, summaries: &[BlockSummary], value: F) -> Result<()>
+where
+    F: Fn(BlockSummary) -> f64,
+{
+    let file = File::create(filename).with_context(|| format!("Failed to create {}", filename))?;
+    let mut writer = BufWriter::new(file);
+
+    for row in 0..PIGMENT_STEPS {
+        let cells: Vec<String> = (0..PIGMENT_STEPS)
+            .map(|col| format!("{:.4}", value(summaries[row * PIGMENT_STEPS + col])))
+            .collect();
+        writeln!(writer, "{}", cells.join(","))?;
+    }
+    writer.flush()?;
     Ok(())
 }
